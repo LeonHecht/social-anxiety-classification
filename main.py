@@ -3,7 +3,7 @@
 
 # ## Print Start time
 
-# In[2]:
+# In[1]:
 
 
 import time
@@ -14,7 +14,7 @@ print(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
 print("------------------------------------------------")
 
 
-# In[4]:
+# In[2]:
 
 
 import os
@@ -23,7 +23,7 @@ print("Does df-save-path exist:", os.path.exists('data/augmented_train_dfs'))
 
 # ## Load df
 
-# In[10]:
+# In[3]:
 
 
 import pandas as pd
@@ -33,20 +33,9 @@ df = pd.read_csv('data/SMM4H_2024_Task3_Training_1800.csv', usecols=['keyword', 
 print(df)
 
 
-# ## Do imports
-
-# In[11]:
-
-
-from transformers import DistilBertTokenizer, DistilBertForSequenceClassification, Trainer, TrainingArguments
-# !pip install datasets
-from datasets import Dataset
-from sklearn.metrics import accuracy_score, precision_recall_fscore_support
-
-
 # ## Clean text
 
-# In[12]:
+# In[4]:
 
 
 def clean_text(text):
@@ -66,15 +55,15 @@ df['text'] = df['text'].apply(clean_text)
 
 # ## Add Keywords to text
 
-# In[13]:
+# In[5]:
 
 
-df['text'] = df['keyword'] + " " + df['text']
+df['text'] = df['text'] + " Keywords: " + df['keyword']
 
 
 # ## Split data
 
-# In[14]:
+# In[6]:
 
 
 from sklearn.model_selection import train_test_split
@@ -88,7 +77,7 @@ val_texts, test_texts, y_val, y_test = train_test_split(temp_texts, temp_labels,
 
 # ## Cut Classes to X texts
 
-# In[15]:
+# In[7]:
 
 
 # Create a DataFrame from the training texts and labels
@@ -97,14 +86,14 @@ train_df = pd.DataFrame({'text': train_texts, 'label': y_train})
 # Sample 200 texts from each class (or as many as are available for classes with fewer than 200 examples)
 sampled_dfs = []
 for label in train_df['label'].unique():
-    class_sample_size = min(len(train_df[train_df['label'] == label]), 400)
+    class_sample_size = min(len(train_df[train_df['label'] == label]), 200)
     sampled_dfs.append(train_df[train_df['label'] == label].sample(n=class_sample_size, random_state=42))
 
 # Concatenate the samples to create a balanced training DataFrame
 train_df = pd.concat(sampled_dfs, ignore_index=True)
 
 
-# In[ ]:
+# In[8]:
 
 
 # import matplotlib.pyplot as plt
@@ -130,10 +119,12 @@ train_df = pd.concat(sampled_dfs, ignore_index=True)
 
 # ## Backtranslate
 
-# In[1]:
+# In[9]:
 
 
-backtranslate = True
+backtranslate = False
+# Save the augmented training dataframe to a CSV file
+train_df_path = 'data/augmented_train_dfs/train_df_plus_backtranslated_class_1_3.csv'
 
 if backtranslate:
 
@@ -152,23 +143,23 @@ if backtranslate:
     # Check the new class distribution after backtranslation
     print("Class distribution after backtranslation:", train_df['label'].value_counts())
 
-    # Save the augmented training dataframe to a CSV file
-    train_df.to_csv(f'data/augmented_train_dfs/train_df_plus_backtranslated_class_1_3.csv', index=False)
+    train_df.to_csv(train_df_path, index=False)
 
 
 # ## Load train_df from csv
 
-# In[ ]:
+# In[10]:
 
 
-# If we don't backtranslate, load the existing augmented training DataFrame
-if not backtranslate:
-    train_df = pd.read_csv('data/augmented_train_dfs/bcktrn_class_1_3_to_200.csv')
+# # If we don't backtranslate, load the existing augmented training DataFrame
+# if not backtranslate:
+#     train_df = pd.read_csv(train_df_path)
+#     print("Class distribution:", train_df['label'].value_counts())
 
 
 # ## Split train_df into texts and labels
 
-# In[ ]:
+# In[11]:
 
 
 # Now you can extract the texts and labels
@@ -180,18 +171,27 @@ print("y_train balanced", y_train)
 
 # ## Run Model
 
-# In[ ]:
+# In[17]:
 
 
-from models import tune_transformer
+# from models import tune_transformer
 
-model = 'DistilBert'
+# # model = 'DistilBert'
 # model = 'RoBERTa'
 
-if model == 'DistilBert':
-    tune_transformer.run('distilbert-base-uncased', train_texts, val_texts, test_texts, y_train, y_val, y_test)
-elif model == 'RoBERTa':
-    tune_transformer.run('roberta-base', train_texts, val_texts, test_texts, y_train, y_val, y_test)
+# print("------------------------------------")
+# print("Model:", model)
+# print("------------------------------------")
+
+# if model == 'DistilBert':
+#     tune_transformer.run('distilbert-base-uncased', train_texts, val_texts, test_texts, y_train, y_val, y_test)
+# elif model == 'RoBERTa':
+#     tune_transformer.run('roberta-base', train_texts, val_texts, test_texts, y_train, y_val, y_test)
+
+from models import feed_forward
+import pandas as pd
+
+feed_forward.run(train_texts.append(val_texts, ignore_index=True), test_texts, y_train.append(y_val, ignore_index=True), y_test)
 
 
 # ## Print End Time
@@ -205,109 +205,4 @@ print("End-Time")
 # print current time in format: 2019-10-03 13:10:00
 print(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
 print("------------------------------------------------")
-
-
-# ## Tokenize data and create Datasets
-
-# In[ ]:
-
-
-# tokenizer = DistilBertTokenizer.from_pretrained('distilbert-base-uncased')
-
-# # Tokenize and encode the text data
-# def tokenize_data(texts, labels):
-#     encodings = tokenizer(texts, truncation=True, padding=True, max_length=128)
-#     return {"input_ids": encodings["input_ids"], "attention_mask": encodings["attention_mask"], "labels": labels}
-
-# train_encodings = tokenize_data(train_texts.to_list(), y_train.to_list())
-# val_encodings = tokenize_data(val_texts.to_list(), y_val.to_list())
-# test_encodings = tokenize_data(test_texts.to_list(), y_test.to_list())
-
-# # Convert to Hugging Face Dataset
-# train_dataset = Dataset.from_dict(train_encodings)
-# val_dataset = Dataset.from_dict(val_encodings)
-# test_dataset = Dataset.from_dict(test_encodings)
-
-
-# ## Load Model
-
-# In[ ]:
-
-
-# model = DistilBertForSequenceClassification.from_pretrained('distilbert-base-uncased', num_labels=4)  # Assuming 4 classes
-
-
-# ## Define Compute Metrics
-
-# In[ ]:
-
-
-# import numpy as np
-
-
-# def compute_metrics(eval_pred):
-#     logits, labels = eval_pred
-#     predictions = np.argmax(logits, axis=-1)
-#     precision, recall, f1, _ = precision_recall_fscore_support(labels, predictions, average='macro')
-#     acc = accuracy_score(labels, predictions)
-#     return {"accuracy": acc, "f1": f1, "precision": precision, "recall": recall}
-
-
-# ## Define Training Arguments
-
-# In[ ]:
-
-
-# training_args = TrainingArguments(
-#     output_dir='./results',
-#     num_train_epochs=3,
-#     per_device_train_batch_size=16,
-#     per_device_eval_batch_size=16,
-#     warmup_steps=500,
-#     weight_decay=0.01,
-#     learning_rate=5e-5,
-#     logging_dir='./logs',
-#     logging_steps=10,
-#     evaluation_strategy="epoch"
-# )
-
-
-# In[ ]:
-
-
-# trainer = Trainer(
-#     model=model,
-#     args=training_args,
-#     train_dataset=train_dataset,
-#     eval_dataset=val_dataset,
-#     compute_metrics=compute_metrics
-# )
-
-
-# In[ ]:
-
-
-# trainer.train()
-
-
-# In[ ]:
-
-
-# test_results = trainer.predict(test_dataset)
-# print("Test results:", test_results.metrics)
-
-# print("(True) Test Labels):", test_results.label_ids)
-
-
-# In[ ]:
-
-
-# from sklearn.metrics import classification_report
-# import numpy as np
-
-# test_pred_labels = np.argmax(test_results.predictions, axis=-1)
-# print("Predicted Labels", test_pred_labels)
-
-# # Generate and print the classification report
-# print(classification_report(y_test, test_pred_labels, target_names=['Class 0', 'Class 1', 'Class 2', 'Class 3']))
 
