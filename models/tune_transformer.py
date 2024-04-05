@@ -46,7 +46,7 @@ def create_datasets(tokenizer, train_texts, val_texts, test_texts, y_train, y_va
     val_dataset = Dataset.from_dict(val_encodings)
     test_dataset = Dataset.from_dict(test_encodings)
     
-    return train_dataset, val_dataset, test_dataset
+    return train_dataset, val_dataset, test_dataset        
 
 
 def load_model(model_checkpoint):
@@ -76,7 +76,7 @@ def training_arguments():
     evaluation_strategy="epoch",
     save_strategy="epoch",
     load_best_model_at_end=True,
-    metric_for_best_model="f1",
+    metric_for_best_model="loss",
     )
     return training_args
 
@@ -89,7 +89,7 @@ def get_trainer(model, training_args, train_dataset, val_dataset):
     eval_dataset=val_dataset,
     compute_metrics=compute_metrics,
     # callbacks=[EarlyStoppingCallback(early_stopping_patience=4), ParaphraseCallback(paraphrase_function, tokenizer)]
-    callbacks=[EarlyStoppingCallback(early_stopping_patience=7)]
+    callbacks=[EarlyStoppingCallback(early_stopping_patience=4)]
     )
     return trainer
 
@@ -114,9 +114,9 @@ def run(model_checkpoint, train_texts, val_texts, test_texts, y_train, y_val, y_
     trainer.train()
     predictions = predict(trainer, test_dataset)
     test_pred_labels = get_labels(predictions)
-    
     # Generate and print the classification report
     print(classification_report(y_test, test_pred_labels, target_names=['Class 0', 'Class 1', 'Class 2', 'Class 3']))
+    return test_pred_labels
 
 
 def run_optimization(model_checkpoint, train_texts, val_texts, test_texts, y_train, y_val, y_test):
