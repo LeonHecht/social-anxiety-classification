@@ -21,6 +21,14 @@ import os
 print("Does df-save-path exist:", os.path.exists('data/augmented_train_dfs'))
 
 
+# ## Specify deploying mode
+
+# In[ ]:
+
+
+deploying = True
+
+
 # ## Specify Model
 
 # In[ ]:
@@ -40,14 +48,14 @@ model = 'XLNet-Large'
 
 import pandas as pd
 
+print("Reading data...")
 df = pd.read_csv('data/SMM4H_2024_Task3_Training_1800.csv', usecols=['id', 'keyword', 'text', 'label'])
 df_val = pd.read_csv('data/SMM4H_2024_Task3_Validation_600.csv', usecols=['id', 'keyword', 'text', 'label'])
+print("Data read...")
+# Keep the validation data apart when deploying
+if not deploying:
+    df = pd.concat([df, df_val], ignore_index=True)
 
-# Contar el número de publicaciones en cada categoría
-class_counts = df_val['label'].value_counts()
-print("Class distribution of val df:\n", class_counts)
-
-df = pd.concat([df, df_val], ignore_index=True)
 print(df)
 
 
@@ -78,7 +86,7 @@ if not augmenting:
 
 # ## Clean text
 
-# In[6]:
+# In[ ]:
 
 
 # import emoji library
@@ -100,7 +108,7 @@ def clean_text(text):
 
     return text
 
-# df['text'] = df['text'].apply(clean_text)
+df['text'] = df['text'].apply(clean_text)
 
 
 # ## Split data
@@ -111,7 +119,7 @@ def clean_text(text):
 from sklearn.model_selection import train_test_split
 
 
-if not augmenting:
+if not augmenting and not deploying:
     # ----- Without Keywords (for training) -----
     # First, split the data into a training set and a temporary set (which will be further split into validation and test sets)
     train_ids, temp_ids, train_texts, temp_texts, y_train, temp_labels = train_test_split(
@@ -125,7 +133,7 @@ if not augmenting:
         test_size=0.5, random_state=42
     )
 
-else:
+elif augmenting:
     # ----- With Keywords (for augmenting) -----
     # First, split the data into a training set and a temporary set (which will be further split into validation and test sets)
     train_texts, temp_texts, train_keywords, temp_keywords, y_train, temp_labels = train_test_split(
@@ -136,6 +144,17 @@ else:
     val_texts, test_texts, val_keywords, test_keywords, y_val, y_test = train_test_split(
         temp_texts, temp_keywords, temp_labels, test_size=0.5, random_state=42
     )
+    
+elif deploying:
+    train_ids, val_ids, train_texts, val_texts, y_train, y_val = train_test_split(
+        df['id'], df['text'], df['label'],
+        test_size=0.3, random_state=42
+    )
+
+    test_texts = df_val['text']
+    y_test = df_val['label']
+
+    
 
 
 # In[ ]:
@@ -270,13 +289,15 @@ if not augmenting:
 # In[ ]:
 
 
-# Now you can extract the texts and labels
-train_texts = train_df['text']
-print("Train texts balanced", train_texts)
-# print datatype of y train values
-y_train = train_df['label']
-print("Datatype of y_train", type(y_train))
-print("y_train balanced", y_train)
+if not augmenting:
+    shuffled_train_df = train_df.sample(frac=1, random_state=42).reset_index(drop=True)
+    # Now you can extract the texts and labels
+    train_texts = shuffled_train_df['text']
+    print("Train texts balanced", train_texts)
+    # print datatype of y train values
+    y_train = shuffled_train_df['label']
+    print("Datatype of y_train", type(y_train))
+    print("y_train balanced", y_train)
 
 
 # ## Print train_df class distribution after cutting/before augmentation
@@ -390,12 +411,13 @@ if paraphrase:
 # In[ ]:
 
 
-if not augmenting:
-    from models import tune_transformer
+from models import tune_transformer
 
-    print("------------------------------------")
-    print("Model:", model)
-    print("------------------------------------")
+print("------------------------------------")
+print("Model:", model)
+print("------------------------------------")
+
+if not augmenting:
 
     print("Converting train, val and test texts to csv...")
     train_texts.to_csv('data/train_texts.csv', index=False, header=False)
@@ -403,15 +425,22 @@ if not augmenting:
     test_texts.to_csv('data/test_texts.csv', index=False, header=False)
 
     if model == 'DistilBert':
-        tune_transformer.run('distilbert-base-uncased', train_texts, val_texts, test_texts, y_train, y_val, y_test)
+        test_pred_labels = tune_transformer.run('distilbert-base-uncased', train_texts, val_texts, test_texts, y_train, y_val, y_test)
     elif model == 'RoBERTa':
-        tune_transformer.run_optimization('roberta-base', train_texts, val_texts, test_texts, y_train, y_val, y_test)
+        test_pred_labels = tune_transformer.run('roberta-base', train_texts, val_texts, test_texts, y_train, y_val, y_test)
     elif model == 'Bert-Large':
-        tune_transformer.run('bert-large-uncased', train_texts, val_texts, test_texts, y_train, y_val, y_test)
+        test_pred_labels = tune_transformer.run('bert-large-uncased', train_texts, val_texts, test_texts, y_train, y_val, y_test)
     elif model == 'XLNet-Large':
-        tune_transformer.run('xlnet-large-cased', train_texts, val_texts, test_texts, y_train, y_val, y_test)
+        test_pred_labels = tune_transformer.run('xlnet-large-cased', train_texts, val_texts, test_texts, y_train, y_val, y_test)
     elif model == 'XLM-Roberta-Large':
-        tune_transformer.run('xlm-roberta-large', train_texts, val_texts, test_texts, y_train, y_val, y_test)
+        test_pred_labels = tune_transformer.run('xlm-roberta-large', train_texts, val_texts, test_texts, y_train, y_val, y_test)
+    
+    # replace original test labels with predicted labels
+    shuffled_val['label'] = test_pred_labels
+
+    # save the dataframe with predicted labels to a csv file
+    print("Saving predictions to csv...")
+    shuffled_val.to_csv('data/prediction_task3.tsv', sep='\t', index=False)
 
 
 # ## Print End Time
