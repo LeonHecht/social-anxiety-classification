@@ -3,7 +3,7 @@
 
 # ## Print Start time
 
-# In[1]:
+# In[13]:
 
 
 import time
@@ -14,7 +14,7 @@ print(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
 print("------------------------------------------------")
 
 
-# In[2]:
+# In[14]:
 
 
 import os
@@ -23,30 +23,63 @@ print("Does df-save-path exist:", os.path.exists('data/augmented_train_dfs'))
 
 # ## Specify deploying mode
 
-# In[ ]:
+# In[15]:
 
 
-deploying = True
+deploying = False
 
 
 # ## Specify Model
 
-# In[ ]:
+# In[16]:
 
 
-# model = 'DistilBert'
-# model = 'RoBERTa'
-# model = 'Bert-Large'
-model = 'XLNet-Large'
-# model = 'XLM-Roberta-Large'
+# model = 'distilbert-base-uncased'
+# model = 'roberta-base'
+# model = 'bert-large-uncased'
+model = 'xlnet-large-cased'
+# model = 'xlm-roberta-large'
+# model = 'microsoft/deberta-v2-xxlarge'
 
 
 # ## Load df
 
-# In[3]:
+# In[18]:
 
 
 import pandas as pd
+import nltk
+from nltk.stem import WordNetLemmatizer
+from nltk.tokenize import sent_tokenize, word_tokenize
+# nltk.download('punkt')
+# nltk.download('wordnet')
+# nltk.download('omw-1.4')
+
+
+def lemmatize_words(words):
+    return [lemmatizer.lemmatize(word) for word in words]
+
+def filter_sentences(row):
+    # Assuming keywords are separated by commas and possibly spaces
+    keywords = [lemmatizer.lemmatize(word) for word in row['keyword'].replace(' ', '').split(',')]
+    text = row['text']
+    sentences = sent_tokenize(text)
+    
+    # Filter sentences that contain at least one lemmatized keyword
+    filtered_sentences = []
+    for index, sentence in enumerate(sentences):
+        words = lemmatize_words(word_tokenize(sentence))
+        if any(keyword in words for keyword in keywords):
+            # Add previous sentence if it exists
+            if index > 0:
+                filtered_sentences.append(sentences[index - 1])
+            # Add current sentence
+            filtered_sentences.append(sentence)
+            # Add next sentence if it exists
+            if index < len(sentences) - 1:
+                filtered_sentences.append(sentences[index + 1])
+
+    return ' '.join(filtered_sentences) if filtered_sentences else text  # Return original text if no keywords found
 
 print("Reading data...")
 df = pd.read_csv('data/SMM4H_2024_Task3_Training_1800.csv', usecols=['id', 'keyword', 'text', 'label'])
@@ -56,6 +89,14 @@ print("Data read...")
 if not deploying:
     df = pd.concat([df, df_val], ignore_index=True)
 
+# Lemmatizer
+lemmatizer = WordNetLemmatizer()
+
+# Apply the function to filter sentences in the text
+df['text'] = df.apply(filter_sentences, axis=1)
+if deploying:
+    df_val['text'] = df_val.apply(filter_sentences, axis=1)
+
 print(df)
 
 
@@ -64,7 +105,7 @@ print(df)
 # In[4]:
 
 
-augmenting = False
+augmenting = True
 
 
 # ## Add Keywords
@@ -72,21 +113,25 @@ augmenting = False
 # In[5]:
 
 
-if not augmenting:
-    if model == 'DistilBert' or model == 'RoBERTa' or model == 'Bert-Large':
+def add_keywords(df_, model):
+    if model == 'distilbert-base-uncased' or model == 'roberta-base' or model == 'bert-large-uncased' or model == 'microsoft/deberta-v2-xxlarge':
         sep_token = '[SEP]'
-    elif model == 'XLNet-Large':
+    elif model == 'xlnet-large-cased':
         sep_token = '<sep>'
-    elif model == 'XLM-Roberta-Large':
+    elif model == 'xlm-roberta-large':
         sep_token = '</s>'
     
-    df['text'] = df['text'] + f" {sep_token} " + df['keyword']
-    df.drop(columns=['keyword'], inplace=True)
+    df_['text'] = df_['text'] + f" {sep_token} " + df_['keyword']
+    df_.drop(columns=['keyword'], inplace=True)
+    return df_
+
+if not augmenting:
+    df = add_keywords(df, model)
 
 
 # ## Clean text
 
-# In[ ]:
+# In[7]:
 
 
 # import emoji library
@@ -113,7 +158,7 @@ df['text'] = df['text'].apply(clean_text)
 
 # ## Split data
 
-# In[ ]:
+# In[8]:
 
 
 from sklearn.model_selection import train_test_split
@@ -122,14 +167,14 @@ from sklearn.model_selection import train_test_split
 if not augmenting and not deploying:
     # ----- Without Keywords (for training) -----
     # First, split the data into a training set and a temporary set (which will be further split into validation and test sets)
-    train_ids, temp_ids, train_texts, temp_texts, y_train, temp_labels = train_test_split(
-        df['id'], df['text'], df['label'],
+    train_texts, temp_texts, y_train, temp_labels = train_test_split(
+        df['text'], df['label'],
         test_size=0.3, random_state=42
     )
 
     # Next, split the temporary set into validation and test sets
-    val_ids, test_ids, val_texts, test_texts, y_val, y_test = train_test_split(
-        temp_ids, temp_texts, temp_labels,
+    val_texts, test_texts, y_val, y_test = train_test_split(
+        temp_texts, temp_labels,
         test_size=0.5, random_state=42
     )
 
@@ -146,8 +191,8 @@ elif augmenting:
     )
     
 elif deploying:
-    train_ids, val_ids, train_texts, val_texts, y_train, y_val = train_test_split(
-        df['id'], df['text'], df['label'],
+    train_texts, val_texts, y_train, y_val = train_test_split(
+        df['text'], df['label'],
         test_size=0.3, random_state=42
     )
 
@@ -183,18 +228,13 @@ elif deploying:
 
 # ## Get train_df
 
-# In[ ]:
+# In[9]:
 
 
 if not augmenting:
     # ----- Without Keywords (for training) -----
     # Create a DataFrame from the training texts and labels
-    train_df = pd.DataFrame({'id': train_ids, 'text': train_texts, 'label': y_train})
-    real_id = '3u2w5k'
-    real_label = 0
-
-    real_id2 = '8ugfyp'
-    real_label2 = 3
+    train_df = pd.DataFrame({'text': train_texts, 'label': y_train})
 else:  
     # ----- With Keywords (for augmenting) -----
     # Create a DataFrame from the training texts and labels
@@ -207,15 +247,21 @@ print("Class distribution before cutting:\n", class_counts)
 
 # ## Augment train_df by paraphased texts
 
-# In[ ]:
+# In[10]:
 
 
 if not augmenting:
     ## ----------- Comment code if augmenting data ------------
 
-    paraphrased_1_df = pd.read_csv('data/augmented_train_dfs/paraphrased_class_1.csv', usecols=['text', 'label'])
-    paraphrased_3_df = pd.read_csv('data/augmented_train_dfs/paraphrased_class_3.csv', usecols=['text', 'label'])
+    paraphrased_1_df = pd.read_csv('data/augmented_train_dfs/paraphrased_class_1.csv', usecols=['text', 'label', 'keyword'])
+    paraphrased_3_df = pd.read_csv('data/augmented_train_dfs/paraphrased_class_3.csv', usecols=['text', 'label', 'keyword'])
+    
+    # Add keywords to paraphrased dfs
+    paraphrased_1_df = add_keywords(paraphrased_1_df, model)
+    paraphrased_3_df = add_keywords(paraphrased_3_df, model)
 
+    print("Paraphrased 1 df:\n", paraphrased_1_df)
+    
     # merge df with paraphrased dfs
     train_df = pd.concat([train_df, paraphrased_1_df, paraphrased_3_df], ignore_index=True)
 
@@ -234,6 +280,28 @@ if not augmenting:
 
     # # merge df with backtranslated dfs
     # train_df = pd.concat([train_df, back_translated_1_df, back_translated_3_df], ignore_index=True)
+
+
+# ## Augment data by ChatGPT 4 generated texts
+
+# In[11]:
+
+
+if not augmenting:
+    ## ----------- Comment code if augmenting data ------------
+
+    chatGPT4_1_df = pd.read_csv('data/augmented_train_dfs/ChatGPT4_texts_class_1.csv', usecols=['text', 'label', 'keyword'])
+    chatGPT4_3_df = pd.read_csv('data/augmented_train_dfs/ChatGPT4_texts_class_3.csv', usecols=['text', 'label', 'keyword'])
+
+    # Add keywords to ChatGPT4 dfs
+    chatGPT4_1_df = add_keywords(chatGPT4_1_df, model)
+    chatGPT4_3_df = add_keywords(chatGPT4_3_df, model)
+
+    # Print chatGPT4 dfs
+    print("chatGPT4_1_df:\n", chatGPT4_1_df)
+
+    # merge df with paraphrased dfs
+    train_df = pd.concat([train_df, paraphrased_1_df, paraphrased_3_df], ignore_index=True)
 
 
 # ## Cut Classes to X texts
@@ -286,7 +354,7 @@ if not augmenting:
 
 # ## Extract texts and labels from train_df
 
-# In[ ]:
+# In[12]:
 
 
 if not augmenting:
@@ -369,7 +437,7 @@ if backtranslate:
 # In[ ]:
 
 
-paraphrase = False
+paraphrase = True
 # Save the augmented training dataframe to a CSV file
 # train_df_path = 'data/augmented_train_dfs/train_df_plus_paraphased_class_1_3.csv'
 
@@ -377,19 +445,25 @@ if paraphrase:
 
     from utils import paraphrase
 
-    for label in {1, 3}:
+    for label in {1, 2, 3}:
         print(f"Paraphrasing class {label}...")
-        # Backtranslate and augment the data for underrepresented classes
+        # Paraphrase and augment the data for underrepresented classes
         selected_texts = train_df[train_df['label'] == label]['text']
         selected_keywords = train_df[train_df['label'] == label]['keyword']
         print(f"length texts of label {label}", len(selected_texts))
         augmented_texts = paraphrase.paraphrase(selected_texts.to_list(), selected_keywords.to_list())
-        augmented_df = pd.DataFrame({'text': augmented_texts, 'label': [label] * len(augmented_texts)})
-        augmented_df.to_csv(f'data/augmented_train_dfs/paraphrased_class_{label}.csv', index=False)
-        train_df = pd.concat([train_df, augmented_df])
+        # augmented_texts = [["t1", "t2", "t3", "t4"], ["t12", "t22", "t32", "t42"]]
+        for i in range(len(augmented_texts[0])):
+            print("i", i)
+            curr_texts = [augmented_texts[j][i] for j in range(len(augmented_texts))]
+            print(curr_texts)
+            augmented_df = pd.DataFrame({'text': curr_texts, 'label': [label] * len(curr_texts), 'keyword': selected_keywords.to_list()})
+            # augmented_df = pd.DataFrame({'text': curr_texts, 'label': [label] * len(curr_texts)})
+            augmented_df.to_csv(f'data/augmented_train_dfs/Paraphrase{i+1}/paraphrased_class_{label}.csv', index=False)
+        # train_df = pd.concat([train_df, augmented_df])
 
     # Check the new class distribution after paraphrasing
-    print("Class distribution after paraphrasing:", train_df['label'].value_counts())
+    # print("Class distribution after paraphrasing:", train_df['label'].value_counts())
 
     # train_df.to_csv(train_df_path, index=False)
 
@@ -424,23 +498,14 @@ if not augmenting:
     val_texts.to_csv('data/val_texts.csv', index=False, header=False)
     test_texts.to_csv('data/test_texts.csv', index=False, header=False)
 
-    if model == 'DistilBert':
-        test_pred_labels = tune_transformer.run('distilbert-base-uncased', train_texts, val_texts, test_texts, y_train, y_val, y_test)
-    elif model == 'RoBERTa':
-        test_pred_labels = tune_transformer.run('roberta-base', train_texts, val_texts, test_texts, y_train, y_val, y_test)
-    elif model == 'Bert-Large':
-        test_pred_labels = tune_transformer.run('bert-large-uncased', train_texts, val_texts, test_texts, y_train, y_val, y_test)
-    elif model == 'XLNet-Large':
-        test_pred_labels = tune_transformer.run('xlnet-large-cased', train_texts, val_texts, test_texts, y_train, y_val, y_test)
-    elif model == 'XLM-Roberta-Large':
-        test_pred_labels = tune_transformer.run('xlm-roberta-large', train_texts, val_texts, test_texts, y_train, y_val, y_test)
+    test_pred_labels = tune_transformer.run(model, train_texts, val_texts, test_texts, y_train, y_val, y_test)
     
     # replace original test labels with predicted labels
-    shuffled_val['label'] = test_pred_labels
+    df_val['label'] = test_pred_labels
 
     # save the dataframe with predicted labels to a csv file
     print("Saving predictions to csv...")
-    shuffled_val.to_csv('data/prediction_task3.tsv', sep='\t', index=False)
+    df_val.to_csv('data/prediction_task3.tsv', sep='\t', index=False)
 
 
 # ## Print End Time
