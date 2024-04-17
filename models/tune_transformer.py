@@ -7,6 +7,7 @@ from sklearn.metrics import classification_report
 # import library for timestamp
 from datetime import datetime
 from transformers import EarlyStoppingCallback
+import torch
 
 
 # from transformers import TrainerCallback
@@ -29,6 +30,16 @@ from transformers import EarlyStoppingCallback
 #     return new_dataset
 
 
+class CustomDataParallel(torch.nn.DataParallel):
+    def __getattr__(self, name):
+        try:
+            # First, try to access attribute from the DataParallel itself
+            return super().__getattr__(name)
+        except AttributeError:
+            # If failed, try to access it from the wrapped model
+            return getattr(self.module, name)
+
+
 def create_datasets(tokenizer, train_texts, val_texts, test_texts, y_train, y_val, y_test):
     # Tokenize and encode the text data
     def tokenize_data(texts, labels):
@@ -46,11 +57,18 @@ def create_datasets(tokenizer, train_texts, val_texts, test_texts, y_train, y_va
     val_dataset = Dataset.from_dict(val_encodings)
     test_dataset = Dataset.from_dict(test_encodings)
     
+    print("Sample train input_ids:", train_dataset['input_ids'][0])
+
     return train_dataset, val_dataset, test_dataset        
 
 
 def load_model(model_checkpoint):
     model = AutoModelForSequenceClassification.from_pretrained(model_checkpoint, num_labels=4)
+    # Wrap the model with DataParallel to use multiple GPUs
+    # if torch.cuda.device_count() > 1:
+    #     print(f"Using {torch.cuda.device_count()} GPUs!")
+    #     model = CustomDataParallel(model)
+    # model.cuda()  # Ensure the model is on the correct device
     return model
 
 
@@ -77,6 +95,7 @@ def training_arguments():
     save_strategy="epoch",
     load_best_model_at_end=True,
     metric_for_best_model="loss",
+    remove_unused_columns=False,  # Keep all columns
     )
     return training_args
 
@@ -89,7 +108,7 @@ def get_trainer(model, training_args, train_dataset, val_dataset):
     eval_dataset=val_dataset,
     compute_metrics=compute_metrics,
     # callbacks=[EarlyStoppingCallback(early_stopping_patience=4), ParaphraseCallback(paraphrase_function, tokenizer)]
-    callbacks=[EarlyStoppingCallback(early_stopping_patience=4)]
+    callbacks=[EarlyStoppingCallback(early_stopping_patience=6)]
     )
     return trainer
 
@@ -202,3 +221,58 @@ def run_optimization(model_checkpoint, train_texts, val_texts, test_texts, y_tra
     sum_df = study.trials_dataframe()
     sum_df.to_csv(f'data/trial_summaries/summary_{model_checkpoint}_{datetime.now()}.csv', index=False)
     print("Trial summary:\n", sum_df)
+
+
+def run_lora(model_checkpoint, train_texts, val_texts, test_texts, y_train, y_val, y_test):
+    from peft import LoraConfig, get_peft_model
+
+    tokenizer = AutoTokenizer.from_pretrained(model_checkpoint)
+    train_dataset, val_dataset, test_dataset = create_datasets(tokenizer, train_texts, val_texts, test_texts, y_train, y_val, y_test)
+    model = load_model(model_checkpoint)
+    print(model)
+
+    # LoRA config
+    # target_modules=["q_proj", "v_proj"],
+        # target_modules = [
+        #     layer_name
+        #     for i in range(48)  # Adjust based on the number of layers in your model
+        #     for layer_name in [
+        #         f"deberta.encoder.layer.{i}.attention.self.query_proj",
+        #         f"deberta.encoder.layer.{i}.attention.self.key_proj",
+        #         f"deberta.encoder.layer.{i}.attention.self.value_proj",
+        #         f"deberta.encoder.layer.{i}.attention.output.dense"
+        #     ]
+        # ],
+    lora_config = LoraConfig(
+        target_modules = [
+            f"distilbert.transformer.layer.{i}.attention.q_lin" for i in range(6)] + [
+            f"distilbert.transformer.layer.{i}.attention.k_lin" for i in range(6)] + [
+            f"distilbert.transformer.layer.{i}.attention.v_lin" for i in range(6)] + [
+            f"distilbert.transformer.layer.{i}.attention.out_lin" for i in range(6)] + [
+            f"distilbert.transformer.layer.{i}.ffn.lin1" for i in range(6)] + [
+            f"distilbert.transformer.layer.{i}.ffn.lin2" for i in range(6)
+        ],
+        r=64,
+        task_type="SEQ_CLS",
+        lora_alpha=128,
+        lora_dropout=0.05,       # 0.05
+        use_rslora=True
+    )
+
+    # load LoRA model
+    lora_model = get_peft_model(model, lora_config)
+
+    training_args = training_arguments()
+    trainer = get_trainer(lora_model, training_args, train_dataset, val_dataset)
+    
+    # Train the model
+    print("Training the model...")
+    print("Verifying train dataset structure...")
+    print(train_dataset[0])  # This should print the first element to check structure
+    trainer.train()
+
+    predictions = predict(trainer, test_dataset)
+    test_pred_labels = get_labels(predictions)
+    # Generate and print the classification report
+    print(classification_report(y_test, test_pred_labels, target_names=['Class 0', 'Class 1', 'Class 2', 'Class 3']))
+    return test_pred_labels
