@@ -1,6 +1,6 @@
 
 from datasets import Dataset
-from transformers import AutoTokenizer, AutoModelForSequenceClassification, Trainer, TrainingArguments
+from transformers import AutoTokenizer, AutoModelForSequenceClassification, Trainer, TrainingArguments, TrainerControl, TrainerState
 import numpy as np
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 from sklearn.metrics import classification_report
@@ -8,26 +8,52 @@ from sklearn.metrics import classification_report
 from datetime import datetime
 from transformers import EarlyStoppingCallback
 import torch
+from transformers import TrainerCallback
+
+from sklearn.utils.class_weight import compute_class_weight
 
 
-# from transformers import TrainerCallback
+class WeightedAutoModel(AutoModelForSequenceClassification):
+    def __init__(self, config, class_weights):
+        super().__init__(config)
+        self.class_weights = class_weights
 
-# class ParaphraseCallback(TrainerCallback):
-#     def __init__(self, paraphrase_function, tokenizer):
-#         self.paraphrase_function = paraphrase_function
-#         self.tokenizer = tokenizer
-
-#     def on_epoch_end(self, args, state, control, **kwargs):
-#         print("Paraphrasing training texts after epoch", state.epoch)
-#         trainer.train_dataset = paraphrase_dataset(trainer.train_dataset, self.paraphrase_function, self.tokenizer)
+    def compute_loss(self, model_output, labels):
+        # model_output: tuple of (logits, ...)
+        logits = model_output[0]
+        # Assuming using CrossEntropyLoss, adjust accordingly if using a different loss
+        loss_fct = torch.nn.CrossEntropyLoss(weight=self.class_weights)
+        return loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
 
 
-# def paraphrase_dataset(dataset, paraphrase_function, tokenizer):
-#     texts = [example["text"] for example in dataset]
-#     paraphrased_texts = paraphrase_function(texts)
-#     new_encodings = tokenizer(paraphrased_texts, truncation=True, padding=True, max_length=128)
-#     new_dataset = Dataset.from_dict({"input_ids": new_encodings["input_ids"], "attention_mask": new_encodings["attention_mask"], "labels": dataset["labels"]})
-#     return new_dataset
+class LossDifferenceCallback(TrainerCallback):
+    def __init__(self, loss_diff_threshold):
+        # Threshold for difference in loss
+        self.loss_diff_threshold = loss_diff_threshold
+        self.training_losses = []
+
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        # Store training loss from each logging step
+        if logs is not None:
+            if 'loss' in logs:
+                self.training_losses.append(logs['loss'])
+
+    def on_evaluate(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, metrics=None, **kwargs):
+        # Calculate the average training loss
+        average_training_loss = sum(self.training_losses) / len(self.training_losses) if self.training_losses else float('inf')
+        # Get the validation loss from the evaluation metrics
+        validation_loss = metrics.get("eval_loss", float("inf"))
+        # print the average training loss and validation loss with two decimal places
+        print(f"\n\nAverage training loss: {average_training_loss:.2f}, Validation loss: {validation_loss:.2f}\n\n")
+
+        # Calculate the difference and decide if training should stop
+        loss_diff = validation_loss - average_training_loss
+        if loss_diff > self.loss_diff_threshold:
+            print(f"Stopping training due to loss difference: {loss_diff}")
+            control.should_training_stop = True
+
+        # Reset training losses after evaluation
+        self.training_losses = []
 
 
 class CustomDataParallel(torch.nn.DataParallel):
@@ -62,14 +88,19 @@ def create_datasets(tokenizer, train_texts, val_texts, test_texts, y_train, y_va
     return train_dataset, val_dataset, test_dataset        
 
 
-def load_model(model_checkpoint):
-    model = AutoModelForSequenceClassification.from_pretrained(model_checkpoint, num_labels=4)
+def load_model(model_checkpoint, num_labels, classes, y_train):
+    # model = AutoModelForSequenceClassification.from_pretrained(model_checkpoint, num_labels=num_labels)
+    class_weights = compute_class_weight('balanced', classes=classes, y=y_train)
+    class_weights_tensor = torch.tensor(class_weights, dtype=torch.float)
+    weighted_model = WeightedAutoModel.from_pretrained(model_checkpoint, num_labels=num_labels)
+    weighted_model.class_weights = class_weights_tensor
+    # weighted_model.load_state_dict(model.state_dict())  # Copy the weights from the original model
     # Wrap the model with DataParallel to use multiple GPUs
     # if torch.cuda.device_count() > 1:
     #     print(f"Using {torch.cuda.device_count()} GPUs!")
     #     model = CustomDataParallel(model)
     # model.cuda()  # Ensure the model is on the correct device
-    return model
+    return weighted_model
 
 
 def compute_metrics(eval_pred):
@@ -87,14 +118,14 @@ def training_arguments():
     per_device_train_batch_size=32,
     per_device_eval_batch_size=32,
     warmup_steps=500,
-    weight_decay=0.01,
+    weight_decay=0.02,
     learning_rate=5e-6,
     logging_dir='./logs',
-    logging_steps=10,
+    logging_steps=5,
     evaluation_strategy="epoch",
     save_strategy="epoch",
     load_best_model_at_end=True,
-    metric_for_best_model="loss",
+    metric_for_best_model="f1",
     remove_unused_columns=False,  # Keep all columns
     )
     return training_args
@@ -108,7 +139,7 @@ def get_trainer(model, training_args, train_dataset, val_dataset):
     eval_dataset=val_dataset,
     compute_metrics=compute_metrics,
     # callbacks=[EarlyStoppingCallback(early_stopping_patience=4), ParaphraseCallback(paraphrase_function, tokenizer)]
-    callbacks=[EarlyStoppingCallback(early_stopping_patience=6)]
+    callbacks=[LossDifferenceCallback(loss_diff_threshold=0.2)]
     )
     return trainer
 
@@ -123,10 +154,13 @@ def get_labels(predictions):
     print("Predicted Labels", test_pred_labels)
     return test_pred_labels
 
-def run(model_checkpoint, train_texts, val_texts, test_texts, y_train, y_val, y_test):
+def run(model_checkpoint, num_labels, train_texts, val_texts, test_texts, y_train, y_val, y_test):
     tokenizer = AutoTokenizer.from_pretrained(model_checkpoint)
     train_dataset, val_dataset, test_dataset = create_datasets(tokenizer, train_texts, val_texts, test_texts, y_train, y_val, y_test)
-    model = load_model(model_checkpoint)
+    classes = np.unique(y_train)
+    print("Type of classes:", type(classes))
+    print("Classes:", classes)
+    model = load_model(model_checkpoint, num_labels, classes, y_train)
     training_args = training_arguments()
     trainer = get_trainer(model, training_args, train_dataset, val_dataset)
     # Train the model
@@ -134,7 +168,12 @@ def run(model_checkpoint, train_texts, val_texts, test_texts, y_train, y_val, y_
     predictions = predict(trainer, test_dataset)
     test_pred_labels = get_labels(predictions)
     # Generate and print the classification report
-    print(classification_report(y_test, test_pred_labels, target_names=['Class 0', 'Class 1', 'Class 2', 'Class 3']))
+    if num_labels == 2:
+        print(classification_report(y_test, test_pred_labels, target_names=['Class 0', 'Class 1']))
+    elif num_labels == 3:
+        print(classification_report(y_test, test_pred_labels, target_names=['Class 1', 'Class 2', 'Class 3']))
+    else:
+        print(classification_report(y_test, test_pred_labels, target_names=['Class 0', 'Class 1', 'Class 2', 'Class 3']))
     return test_pred_labels
 
 
@@ -145,16 +184,18 @@ def run_optimization(model_checkpoint, train_texts, val_texts, test_texts, y_tra
     def objective(trial):
         # Define the hyperparameters to be optimized
         learning_rate = trial.suggest_float("learning_rate", 5e-7, 5e-5, log=True)
-        num_train_epochs = trial.suggest_int("num_train_epochs", 5, 50)
+        num_train_epochs = trial.suggest_int("num_train_epochs", 5, 50, log=True)
+        batch_size = trial.suggest_int("batch_size", 32, 128, log=True)
+        weight_decay = trial.suggest_float("weight_decay", 0.1, 0.3)
 
         # Update the training arguments with the suggested hyperparameters
         training_args = TrainingArguments(
             output_dir='./results',
             num_train_epochs=num_train_epochs,
-            per_device_train_batch_size=16,
-            per_device_eval_batch_size=16,
+            per_device_train_batch_size=batch_size,
+            per_device_eval_batch_size=batch_size,
             warmup_steps=500,
-            weight_decay=0.01,
+            weight_decay=weight_decay,
             learning_rate=learning_rate,
             logging_dir='./logs',
             logging_steps=10,
@@ -191,10 +232,10 @@ def run_optimization(model_checkpoint, train_texts, val_texts, test_texts, y_tra
     best_training_args = TrainingArguments(
         output_dir='./results',
         num_train_epochs=trial.params['num_train_epochs'],
-        per_device_train_batch_size=16,
-        per_device_eval_batch_size=16,
+        per_device_train_batch_size=trial.params['batch_size'],
+        per_device_eval_batch_size=trial.params['batch_size'],
         warmup_steps=500,
-        weight_decay=0.01,
+        weight_decay=trial.params['weight_decay'],
         learning_rate=trial.params["learning_rate"],
         logging_dir='./logs',
         logging_steps=10,
