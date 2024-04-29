@@ -27,7 +27,7 @@ print("Does df-save-path exist:", os.path.exists('data/augmented_train_dfs'))
 
 
 deploying = False
-final_deploy = True
+final_deploy = False
 
 if final_deploy:
     print("-----------------FINAL DEPLOYMENT-----------------")
@@ -114,7 +114,7 @@ print(df)
 # In[4]:
 
 
-augmenting = False
+augmenting = True
 
 
 # ## Get separation token by model
@@ -432,23 +432,23 @@ if not augmenting:
 # In[12]:
 
 
-from sklearn.utils import shuffle
+# from sklearn.utils import shuffle
 
 
-if not augmenting:
+# if not augmenting:
 
-    # Size of each class after sampling (Hyperparameter)
-    # Class 0 has 796 samples and was not augmented
-    class_size = 1500
+#     # Size of each class after sampling (Hyperparameter)
+#     # Class 0 has 796 samples and was not augmented
+#     class_size = 1500
 
-    # Sample 200 texts from each class (or as many as are available for classes with fewer than 200 examples)
-    sampled_dfs = []
-    for label in train_df['label'].unique():
-        class_sample_size = min(len(train_df[train_df['label'] == label]), class_size)
-        sampled_dfs.append(train_df[train_df['label'] == label].sample(n=class_sample_size, random_state=42))
+#     # Sample 200 texts from each class (or as many as are available for classes with fewer than 200 examples)
+#     sampled_dfs = []
+#     for label in train_df['label'].unique():
+#         class_sample_size = min(len(train_df[train_df['label'] == label]), class_size)
+#         sampled_dfs.append(train_df[train_df['label'] == label].sample(n=class_sample_size, random_state=42))
 
-    # Concatenate the samples to create a balanced training DataFrame
-    train_df = pd.concat(sampled_dfs, ignore_index=True)
+#     # Concatenate the samples to create a balanced training DataFrame
+#     train_df = pd.concat(sampled_dfs, ignore_index=True)
 
 
 # ## Extract texts and labels from train_df
@@ -536,7 +536,7 @@ if backtranslate:
 # In[ ]:
 
 
-paraphrase = False
+paraphrase = True
 # Save the augmented training dataframe to a CSV file
 # train_df_path = 'data/augmented_train_dfs/train_df_plus_paraphased_class_1_3.csv'
 
@@ -558,7 +558,7 @@ if paraphrase:
             print(curr_texts)
             augmented_df = pd.DataFrame({'text': curr_texts, 'label': [label] * len(curr_texts), 'keyword': selected_keywords.to_list()})
             # augmented_df = pd.DataFrame({'text': curr_texts, 'label': [label] * len(curr_texts)})
-            augmented_df.to_csv(f'data/augmented_train_dfs/Paraphrase{i+1}/paraphrased_class_{label}.csv', index=False)
+            augmented_df.to_csv(f'data/augmented_train_dfs/ParaphraseVal{i+1}/paraphrased_class_{label}.csv', index=False)
         # train_df = pd.concat([train_df, augmented_df])
 
     # Check the new class distribution after paraphrasing
@@ -573,7 +573,7 @@ if paraphrase:
 
 
 from models import tune_transformer
-# from models import tune_transformer_accelerate as tune_transformer
+# from models import tune_transformer_copy_GPU0 as tune_transformer
 
 print("------------------------------------")
 print("Model:", model)
