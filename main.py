@@ -21,13 +21,17 @@ import os
 print("Does df-save-path exist:", os.path.exists('data/augmented_train_dfs'))
 
 
-# ## Specify deploying mode
+# ## Specify modes
 
 # In[3]:
 
 
-deploying = False
-final_deploy = True
+deploying = True
+final_deploy = False
+augmenting = False
+
+paraphrase_aug = True
+traditional_aug = True
 
 if final_deploy:
     print("-----------------FINAL DEPLOYMENT-----------------")
@@ -88,10 +92,11 @@ def filter_sentences(row):
 
 print("Reading data...")
 df = pd.read_csv('data/SMM4H_2024_Task3_Training_1800.csv', usecols=['id', 'keyword', 'text', 'label'])
-df_val = pd.read_csv('data/SMM4H_2024_Task3_Validation_600.csv', usecols=['id', 'keyword', 'text', 'label'])
+if not augmenting:
+    df_val = pd.read_csv('data/SMM4H_2024_Task3_Validation_600.csv', usecols=['id', 'keyword', 'text', 'label'])
 print("Data read...")
 # Keep the validation data apart when deploying
-if not deploying:
+if not deploying and not augmenting:
     df = pd.concat([df, df_val], ignore_index=True)
 if final_deploy:
     df_test = pd.read_csv('data/SMM4H_Task3_testposts.csv', usecols=['id', 'keyword', 'text'])
@@ -107,14 +112,6 @@ elif final_deploy:
     df_test['text'] = df_test.apply(filter_sentences, axis=1)
 
 print(df)
-
-
-# ## Specify augmentation mode
-
-# In[4]:
-
-
-augmenting = False
 
 
 # ## Get separation token by model
@@ -248,9 +245,6 @@ elif augmenting:
     df['text'], df['keyword'], df['label'],
     test_size=0.3, random_state=42
     )
-
-    test_texts = df_val['text']
-    y_test = df_val['label']
 elif final_deploy:
     train_texts, val_texts, y_train, y_val = train_test_split(
         df['text'], df['label'],
@@ -258,30 +252,6 @@ elif final_deploy:
     )
 
     test_texts = df_test['text']
-
-
-# In[ ]:
-
-
-# import matplotlib.pyplot as plt
-
-# df_plot = df.copy()
-
-# label_mapping = {1: 'positive', 2: 'neutral', 3: 'negative', 0: 'unrelated'}
-# df_plot['label'] = df_plot['label'].map(label_mapping)
-
-# # Contar el número de publicaciones en cada categoría
-# class_counts = df_plot['label'].value_counts()
-# print(class_counts)
-
-# # Crear un gráfico de barras
-# plt.figure(figsize=(8, 6))
-# class_counts.plot(kind='bar')
-# plt.title('Distribución de clases')
-# plt.xlabel('Clase')
-# plt.ylabel('Número de publicaciones')
-# plt.xticks(rotation=0)
-# plt.show()
 
 
 # ## Get train_df
@@ -301,92 +271,66 @@ class_counts = train_df['label'].value_counts()
 print("Class distribution before augmenting with paraphrased texts:\n", class_counts)
 
 
-# ## Augment train_df by paraphased texts
+# ## Augment train_df by augmented texts
 
 # In[10]:
 
 
 import os
 
-
-# if not augmenting:
-
-#     # Base directory where paraphrase folders are located
-#     base_dir = 'data/augmented_train_dfs/'
-
-#     # List to hold all the dataframes to concatenate
-#     dfs_to_concat = [train_df]
-
-#     # Loop through paraphrase folders and their files
-#     for i in range(1, 11):  # Looping from Paraphrase1 to Paraphrase10
-#         folder_path = os.path.join(base_dir, f'Paraphrase{i}')
-#         for class_file in os.listdir(folder_path):
-#             file_path = os.path.join(folder_path, class_file)
-#             # Load each class CSV file
-#             class_df = pd.read_csv(file_path, usecols=['text', 'label', 'keyword'])
-#             # Add keywords to paraphrased dfs
-#             class_df = add_keywords(class_df, model)
-#             # Add sentiment to paraphrased dfs
-#             # # Apply the function to get the compound sentiment score for each post
-#             # class_df['vader_sentiment'] = class_df['text'].apply(get_vader_sentiment)
-#             # class_df = add_vader_sentiment(class_df, model)
-#             # Append the loaded dataframe to the list
-#             dfs_to_concat.append(class_df)
-
-#     # Concatenate all dataframes
-#     train_df = pd.concat(dfs_to_concat, ignore_index=True)
-
-# # Contar el número de publicaciones en cada categoría
-# class_counts = train_df['label'].value_counts()
-# print("Class distribution after augmenting with paraphrased texts:\n", class_counts)
-
-# -----------------------------------------
+if deploying:
+    paraphrase_path = "data/augmented_dfs_train/"
+    aug_path = "data/traditional_augmentation_train/"
+elif final_deploy:
+    paraphrase_path = "data/augmented_dfs_trainval/"
+    aug_path = "data/traditional_augmentation_trainval/"
 
 if not augmenting:
+    if paraphrase_aug:
+        paraphrased_1_df_1 = pd.read_csv(paraphrase_path + 'Paraphrase1/paraphrased_class_1.csv', usecols=['text', 'label', 'keyword'])
+        paraphrased_1_df_2 = pd.read_csv(paraphrase_path + 'Paraphrase2/paraphrased_class_1.csv', usecols=['text', 'label', 'keyword'])
+        paraphrased_1_df_3 = pd.read_csv(paraphrase_path + 'Paraphrase3/paraphrased_class_1.csv', usecols=['text', 'label', 'keyword'])
+        
+        paraphrased_2_df_1 = pd.read_csv(paraphrase_path + 'Paraphrase1/paraphrased_class_2.csv', usecols=['text', 'label', 'keyword'])
+
+        paraphrased_3_df_1 = pd.read_csv(paraphrase_path + 'Paraphrase1/paraphrased_class_3.csv', usecols=['text', 'label', 'keyword'])
+        paraphrased_3_df_2 = pd.read_csv(paraphrase_path + 'Paraphrase2/paraphrased_class_3.csv', usecols=['text', 'label', 'keyword'])
+        paraphrased_3_df_3 = pd.read_csv(paraphrase_path + 'Paraphrase3/paraphrased_class_3.csv', usecols=['text', 'label', 'keyword'])
+        paraphrased_3_df_4 = pd.read_csv(paraphrase_path + 'Paraphrase4/paraphrased_class_3.csv', usecols=['text', 'label', 'keyword'])
+
+        paraphrased_df = pd.concat([paraphrased_1_df_1, paraphrased_1_df_2, paraphrased_1_df_3, paraphrased_2_df_1, paraphrased_3_df_1, paraphrased_3_df_2, paraphrased_3_df_3, paraphrased_3_df_4], ignore_index=True)
+
+        # Add keywords to paraphrased dfs
+        paraphrased_df = add_keywords(paraphrased_df, model)
+
+        train_df = pd.concat([train_df, paraphrased_df], ignore_index=True)
     
-    paraphrased_1_df_1 = pd.read_csv('data/augmented_train_dfs/Paraphrase1/paraphrased_class_1.csv', usecols=['text', 'label', 'keyword'])
-    paraphrased_1_df_2 = pd.read_csv('data/augmented_train_dfs/Paraphrase2/paraphrased_class_1.csv', usecols=['text', 'label', 'keyword'])
-    paraphrased_1_df_3 = pd.read_csv('data/augmented_train_dfs/Paraphrase3/paraphrased_class_1.csv', usecols=['text', 'label', 'keyword'])
-    
-    paraphrased_2_df_1 = pd.read_csv('data/augmented_train_dfs/Paraphrase1/paraphrased_class_2.csv', usecols=['text', 'label', 'keyword'])
+    if traditional_aug:
+        punct_df = pd.read_csv(aug_path + 'punct_df.csv', usecols=['text', 'label', 'keyword'])
+        # punct_df = punct_df.loc[punct_df['label'] != 0]
+        # punct_df = punct_df.loc[punct_df['label'] != 2]
 
-    paraphrased_3_df_1 = pd.read_csv('data/augmented_train_dfs/Paraphrase1/paraphrased_class_3.csv', usecols=['text', 'label', 'keyword'])
-    paraphrased_3_df_2 = pd.read_csv('data/augmented_train_dfs/Paraphrase2/paraphrased_class_3.csv', usecols=['text', 'label', 'keyword'])
-    paraphrased_3_df_3 = pd.read_csv('data/augmented_train_dfs/Paraphrase3/paraphrased_class_3.csv', usecols=['text', 'label', 'keyword'])
-    paraphrased_3_df_4 = pd.read_csv('data/augmented_train_dfs/Paraphrase4/paraphrased_class_3.csv', usecols=['text', 'label', 'keyword'])
+        rnd_del_df = pd.read_csv(aug_path + 'rnd_del_df.csv', usecols=['text', 'label', 'keyword'])
+        # rnd_del_df = rnd_del_df.loc[rnd_del_df['label'] != 0]
+        # rnd_del_df = rnd_del_df.loc[rnd_del_df['label'] != 2]
 
-    paraphrased_df = pd.concat([paraphrased_1_df_1, paraphrased_1_df_2, paraphrased_1_df_3, paraphrased_2_df_1, paraphrased_3_df_1, paraphrased_3_df_2, paraphrased_3_df_3, paraphrased_3_df_4], ignore_index=True)
+        rnd_swap_df = pd.read_csv(aug_path + 'rnd_swap_df.csv', usecols=['text', 'label', 'keyword'])
+        # rnd_swap_df = rnd_swap_df.loc[rnd_swap_df['label'] != 0]
+        # rnd_swap_df = rnd_swap_df.loc[rnd_swap_df['label'] != 2]
 
-    # Add keywords to paraphrased dfs
-    paraphrased_df = add_keywords(paraphrased_df, model)
+        rnd_insert_df = pd.read_csv(aug_path + 'rnd_insert_df.csv', usecols=['text', 'label', 'keyword'])
+        # rnd_insert_df = rnd_insert_df.loc[rnd_insert_df['label'] != 0]
+        # rnd_insert_df = rnd_insert_df.loc[rnd_insert_df['label'] != 2]
 
-    # # Add sentiment to paraphrased dfs
-    # # Apply the function to get the compound sentiment score for each post
-    # paraphrased_df['vader_sentiment'] = paraphrased_df['text'].apply(get_vader_sentiment)
-    # paraphrased_df = add_vader_sentiment(paraphrased_df, model)
+        aug_df = pd.concat([punct_df, rnd_del_df, rnd_swap_df, rnd_insert_df], ignore_index=True)
 
-    punct_df = pd.read_csv('data/LoadOnEpoch/PunctInsertion/df1.csv', usecols=['text_augmented', 'label', 'keyword'])
-    # punct_df = punct_df.loc[punct_df['label'] != 0]
+        # Add keywords to augmented dfs
+        aug_df = add_keywords(aug_df, model)
 
-    rnd_del_df = pd.read_csv('data/LoadOnEpoch/RandomDeletion/df1.csv', usecols=['text_augmented', 'label', 'keyword'])
-    # rnd_del_df = rnd_del_df.loc[rnd_del_df['label'] != 0]
-
-    rnd_swap_df = pd.read_csv('data/LoadOnEpoch/RandomSwap/df1.csv', usecols=['text_augmented', 'label', 'keyword'])
-    # rnd_swap_df = rnd_swap_df.loc[rnd_swap_df['label'] != 0]
-
-    rnd_insert_df = pd.read_csv('data/LoadOnEpoch/RandomInsertion/df1.csv', usecols=['text_augmented', 'label', 'keyword'])
-    # rnd_insert_df = rnd_insert_df.loc[rnd_insert_df['label'] != 0]
-
-    aug_df = pd.concat([punct_df, rnd_del_df, rnd_swap_df, rnd_insert_df], ignore_index=True)
-
-    # rename text_augmented to text
-    aug_df.rename(columns={'text_augmented': 'text'}, inplace=True)
-
-    # Add keywords to augmented dfs
-    aug_df = add_keywords(aug_df, model)
-
-    # merge df with paraphrased dfs
-    train_df = pd.concat([train_df, paraphrased_df, aug_df], ignore_index=True)
+        # merge df with paraphrased dfs
+        # train_df = pd.concat([train_df, paraphrased_df, aug_df], ignore_index=True)
+        train_df = pd.concat([train_df, aug_df], ignore_index=True)
+        
 
 
 # ## Augment train_df by backtranslated texts
@@ -558,13 +502,55 @@ if paraphrase:
             print(curr_texts)
             augmented_df = pd.DataFrame({'text': curr_texts, 'label': [label] * len(curr_texts), 'keyword': selected_keywords.to_list()})
             # augmented_df = pd.DataFrame({'text': curr_texts, 'label': [label] * len(curr_texts)})
-            augmented_df.to_csv(f'data/augmented_train_dfs/Paraphrase{i+1}/paraphrased_class_{label}.csv', index=False)
+            augmented_df.to_csv(f'data/augmented_dfs_train/Paraphrase{i+1}/paraphrased_class_{label}.csv', index=False)
         # train_df = pd.concat([train_df, augmented_df])
 
     # Check the new class distribution after paraphrasing
     # print("Class distribution after paraphrasing:", train_df['label'].value_counts())
 
     # train_df.to_csv(train_df_path, index=False)
+    print("\nDone paraphrasing\n")
+
+
+# ## Traditional Augmentation
+
+# In[ ]:
+
+
+if augmenting:
+
+    from utils import punct_insertion, random_deletion, random_swap, random_insertion
+
+    print("Starting traditional augmentation...")
+
+    train_df['text_punct_insertion'] = train_df['text'].apply(punct_insertion.insert_punctuation)
+    train_df['text_random_deletion'] = train_df['text'].apply(random_deletion.rnd_del)
+    train_df['text_random_swap'] = train_df['text'].apply(random_swap.rnd_swap)
+    train_df['text_random_insertion'] = train_df['text'].apply(random_insertion.rnd_insert)
+
+    punct_df = train_df[['text_punct_insertion', 'label', 'keyword']].copy()
+    # rename text_punct_insertion to text
+    punct_df.rename(columns={'text_punct_insertion': 'text'}, inplace=True)
+
+    rnd_del_df = train_df[['text_random_deletion', 'label', 'keyword']].copy()
+    # rename text_random_deletion to text
+    rnd_del_df.rename(columns={'text_random_deletion': 'text'}, inplace=True)
+
+    rnd_swap_df = train_df[['text_random_swap', 'label', 'keyword']].copy()
+    # rename text_random_swap to text
+    rnd_swap_df.rename(columns={'text_random_swap': 'text'}, inplace=True)
+
+    rnd_insert_df = train_df[['text_random_insertion', 'label', 'keyword']].copy()
+    # rename text_random_insertion to text
+    rnd_insert_df.rename(columns={'text_random_insertion': 'text'}, inplace=True)
+
+    # Save the augmented training dataframe to a CSV file
+    punct_df.to_csv('data/traditional_augmentation_train/punct_df1.csv', index=False)
+    rnd_del_df.to_csv('data/traditional_augmentation_train/rnd_del_df1.csv', index=False)
+    rnd_swap_df.to_csv('data/traditional_augmentation_train/rnd_swap_df1.csv', index=False)
+    rnd_insert_df.to_csv('data/traditional_augmentation_train/rnd_insert_df1.csv', index=False)
+
+    print("Traditional augmentation done...")
 
 
 # ## Run Model
@@ -586,7 +572,7 @@ if not augmenting:
     val_texts.to_csv('data/val_texts.csv', index=False, header=False)
     test_texts.to_csv('data/test_texts.csv', index=False, header=False)
 
-    test_pred_labels = tune_transformer.run(model, 4, train_texts, val_texts, test_texts, y_train, y_val, y_test=None)
+    test_pred_labels = tune_transformer.run(model, 4, train_texts, val_texts, test_texts, y_train, y_val, y_test)
     
     if final_deploy:
         # replace original test labels with predicted labels

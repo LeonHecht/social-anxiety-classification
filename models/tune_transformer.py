@@ -13,7 +13,7 @@ from transformers import TrainerCallback
 from sklearn.utils.class_weight import compute_class_weight
 
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # Makes only GPU2 visible
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"  # Makes only GPU1 visible
 
 
 import torch.nn as nn
@@ -62,27 +62,6 @@ class FocalLoss(nn.Module):
             return torch.sum(focal_loss)
         else:
             return focal_loss
-
-from utils import augment_data_for_epoch
-
-
-from transformers.trainer_utils import IntervalStrategy
-from utils import augment_data_for_epoch
-
-
-class CustomTrainer(Trainer):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-    def train(self):
-        # This method is an oversimplified version of the actual Trainer.train() method
-        for epoch in range(int(self.args.num_train_epochs)):
-            # Apply augmentation at the start of each epoch
-            augmented_texts = augment_data_for_epoch.augment(epoch, [example['text'] for example in self.train_dataset])
-            for i, example in enumerate(self.train_dataset):
-                example['text'] = augmented_texts[i]
-
-            super().train()  # Proceed with training as usual
 
 
 class WeightedAutoModel(AutoModelForSequenceClassification):
@@ -212,8 +191,8 @@ def training_arguments(
         epochs=100,
         batch_size=16,
         weight_decay=0.01,
-        learning_rate=5e-6,
-        warmup_steps=2000
+        learning_rate=2e-6,
+        warmup_steps=1000
 ):
     print("Training arguments")
     print("Batch size:", batch_size)
@@ -283,7 +262,7 @@ def run(model_checkpoint, num_labels, train_texts, val_texts, test_texts, y_trai
         print(classification_report(y_test, test_pred_labels, target_names=['Class 1', 'Class 2', 'Class 3']))
     else:
         pass
-        # print(classification_report(y_test, test_pred_labels, target_names=['Class 0', 'Class 1', 'Class 2', 'Class 3']))
+        print(classification_report(y_test, test_pred_labels, target_names=['Class 0', 'Class 1', 'Class 2', 'Class 3']))
     return test_pred_labels
 
 
