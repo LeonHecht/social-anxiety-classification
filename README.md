@@ -1,4 +1,4 @@
-# Social Media Mining for Health (SMM4H) ACL Workshop Project - Task 3
+# Social Media Mining for Health (SMM4H) ACL 2024 Workshop Project - Task 3
 
 ## Overview
 This repository hosts the materials and code for Task 3 of the 9th Social Media Mining for Health Research and Applications Workshop (SMM4H) at ACL. The project focuses on using Large Language Models (LLMs) to analyze the effects of outdoor activities on social anxiety, based on Reddit posts from r/socialanxiety.
