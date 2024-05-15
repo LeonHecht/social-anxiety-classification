@@ -140,19 +140,19 @@ class CustomDataParallel(torch.nn.DataParallel):
             return getattr(self.module, name)
 
 
-def create_datasets(tokenizer, train_texts, val_texts, test_texts, y_train, y_val, y_test=None):
+def create_datasets(tokenizer, train_texts, val_texts, test_texts, y_train, y_val, y_test=None, max_length=256):
     # Tokenize and encode the text data
     def tokenize_data(texts, labels=None):
         if not all(isinstance(text, str) for text in texts):
             raise ValueError("All elements in 'texts' must be strings.")
-        encodings = tokenizer(texts, truncation=True, padding=True, max_length=256)
+        encodings = tokenizer(texts, truncation=True, padding=True, max_length=max_length)
         if labels is not None:
             encodings["labels"] = labels
         return encodings
 
     train_encodings = tokenize_data(train_texts.to_list(), y_train.to_list())
     val_encodings = tokenize_data(val_texts.to_list(), y_val.to_list())
-    test_encodings = tokenize_data(test_texts.to_list())
+    test_encodings = tokenize_data(test_texts.to_list(), y_test.to_list() if y_test is not None else None)
 
     # Convert to Hugging Face Dataset
     train_dataset = Dataset.from_dict(train_encodings)
@@ -212,7 +212,8 @@ def training_arguments(hyperparameters):
     logging_dir='./logs',
     logging_steps=10,
     evaluation_strategy="epoch",
-    save_strategy="no",
+    save_strategy="epoch",
+    save_total_limit=1,  # limit the number of saved checkpoints
     load_best_model_at_end=True,
     metric_for_best_model=metric,
     remove_unused_columns=False,  # Keep all columns
@@ -248,8 +249,9 @@ def run(model_checkpoint, num_labels,
         y_train, y_val, y_test=None,
         hyperparameters=not None):
     
+    max_length = hyperparameters.get("max_length", 256)
     tokenizer = AutoTokenizer.from_pretrained(model_checkpoint)
-    train_dataset, val_dataset, test_dataset = create_datasets(tokenizer, train_texts, val_texts, test_texts, y_train, y_val, y_test=None)
+    train_dataset, val_dataset, test_dataset = create_datasets(tokenizer, train_texts, val_texts, test_texts, y_train, y_val, y_test=None, max_length=max_length)
     classes = np.unique(y_train)
     print("Type of classes:", type(classes))
     print("Classes:", classes)
