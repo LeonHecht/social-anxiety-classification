@@ -187,13 +187,14 @@ def compute_metrics(eval_pred):
     return {"accuracy": acc, "f1": f1, "precision": precision, "recall": recall}
 
 
-def training_arguments(
-        epochs=100,
-        batch_size=16,
-        weight_decay=0.01,
-        learning_rate=2e-6,
-        warmup_steps=1000
-):
+def training_arguments(hyperparameters):
+    epochs = hyperparameters.get("epochs", 100)
+    batch_size = hyperparameters.get("batch_size", 16)
+    weight_decay = hyperparameters.get("weight_decay", 0.01)
+    learning_rate = hyperparameters.get("learning_rate", 5e-6)
+    warmup_steps = hyperparameters.get("warmup_steps", 1000)
+    metric = hyperparameters.get("metric_for_best_model", "f1")
+
     print("Training arguments")
     print("Batch size:", batch_size)
     print("Weight decay:", weight_decay)
@@ -211,22 +212,22 @@ def training_arguments(
     logging_dir='./logs',
     logging_steps=10,
     evaluation_strategy="epoch",
-    save_strategy="epoch",
+    save_strategy="no",
     load_best_model_at_end=True,
-    metric_for_best_model="f1",
+    metric_for_best_model=metric,
     remove_unused_columns=False,  # Keep all columns
     )
     return training_args
 
 
-def get_trainer(model, training_args, train_dataset, val_dataset, loss_diff_threshold=None):
+def get_trainer(model, training_args, train_dataset, val_dataset, hyperparameters):
     trainer = Trainer(
     model=model,
     args=training_args,
     train_dataset=train_dataset,
     eval_dataset=val_dataset,
     compute_metrics=compute_metrics,
-    callbacks=[EarlyStoppingCallback(early_stopping_patience=2)]
+    callbacks=[EarlyStoppingCallback(early_stopping_patience=hyperparameters.get("early_stopping_patience", 4))]
     # callbacks=[LossDifferenceCallback(loss_diff_threshold=loss_diff_threshold)]
     )
     return trainer
@@ -242,15 +243,19 @@ def get_labels(predictions):
     print("Predicted Labels", test_pred_labels)
     return test_pred_labels
 
-def run(model_checkpoint, num_labels, train_texts, val_texts, test_texts, y_train, y_val, y_test=None):
+def run(model_checkpoint, num_labels,
+        train_texts, val_texts, test_texts,
+        y_train, y_val, y_test=None,
+        hyperparameters=not None):
+    
     tokenizer = AutoTokenizer.from_pretrained(model_checkpoint)
     train_dataset, val_dataset, test_dataset = create_datasets(tokenizer, train_texts, val_texts, test_texts, y_train, y_val, y_test=None)
     classes = np.unique(y_train)
     print("Type of classes:", type(classes))
     print("Classes:", classes)
     model = load_model(model_checkpoint, num_labels, classes, y_train)
-    training_args = training_arguments()
-    trainer = get_trainer(model, training_args, train_dataset, val_dataset, loss_diff_threshold=0.35)
+    training_args = training_arguments(hyperparameters)
+    trainer = get_trainer(model, training_args, train_dataset, val_dataset, hyperparameters)
     # Train the model
     trainer.train()
     predictions = predict(trainer, test_dataset)
