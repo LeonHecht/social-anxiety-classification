@@ -1,6 +1,6 @@
-# Code for the ACL Paper publication: https://aclanthology.org/2024.smm4h-1.14/
-
 # PCIC at SMM4H 2024: Enhancing Reddit Post Classification on Social Anxiety Using Transformer Models and Advanced Loss Functions
+
+## This repo hosts the code for the ACL Paper publication: https://aclanthology.org/2024.smm4h-1.14/
 
 ## Overview
 This repository hosts the materials and code for Task 3 of the 9th Social Media Mining for Health Research and Applications Workshop (SMM4H) at ACL. The project focuses on using Large Language Models (LLMs) to analyze the effects of outdoor activities on social anxiety, based on Reddit posts from r/socialanxiety.
