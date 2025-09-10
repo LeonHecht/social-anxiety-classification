@@ -1,3 +1,5 @@
+# Code for the ACL Paper publication: https://aclanthology.org/2024.smm4h-1.14/
+
 # PCIC at SMM4H 2024: Enhancing Reddit Post Classification on Social Anxiety Using Transformer Models and Advanced Loss Functions
 
 ## Overview
